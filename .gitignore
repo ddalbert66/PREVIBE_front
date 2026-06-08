@@ -4,3 +4,5 @@ dist/
 *.iml
 .env
 .env.*
+*.log
+*.tsbuildinfo
