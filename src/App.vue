@@ -308,14 +308,24 @@ function removePersonalProduct(id: string) {
   productFormMessage.value = "產品已刪除。";
 }
 
-function socialLogin(provider: "Facebook" | "Google" | "LINE") {
+async function socialLogin(provider: "Facebook" | "Google" | "LINE") {
   const email = `${provider.toLowerCase()}@previbe.demo`;
-  const member = { name: `${provider} 會員`, email, password: "social-login", provider };
-  const members = readMembers();
-  if (!members.some((item) => normalizeEmail(item.email) === email)) {
-    saveMembers([...members, member]);
+  const fallbackMember = { name: `${provider} 會員`, email, password: "social-login", provider };
+
+  try {
+    const createdUser = await request<{ id: number; name: string; email: string; role: string }>("/users", {
+      method: "POST",
+      body: JSON.stringify({ name: fallbackMember.name, email, role: "BUYER" }),
+    });
+    const member = { ...fallbackMember, name: createdUser.name ?? fallbackMember.name, email: createdUser.email ?? email };
+    const members = readMembers();
+    if (!members.some((item) => normalizeEmail(item.email) === email)) {
+      saveMembers([...members, member]);
+    }
+    setSignedInMember(member, `已使用 ${provider} 帳號登入。`);
+  } catch (error) {
+    authError.value = `${provider} 登入失敗：${(error as Error).message}`;
   }
-  setSignedInMember(member, `已使用 ${provider} 帳號登入。`);
 }
 
 async function checkHealth() {
