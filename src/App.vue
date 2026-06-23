@@ -340,21 +340,35 @@ async function checkHealth() {
 }
 
 async function createBuyer() {
-  const data = await request<{ id: number }>("/users", {
-    method: "POST",
-    body: JSON.stringify({ ...buyer, role: "BUYER" }),
-  });
-  ids.buyerId = data.id;
-  record(`建立買家 #${data.id}`);
+  const source = currentMember.value ? { name: currentMember.value.name, email: currentMember.value.email } : buyer;
+  try {
+    const data = await request<{ id: number; name: string; email: string }>("/users", {
+      method: "POST",
+      body: JSON.stringify({ ...source, role: "BUYER" }),
+    });
+    ids.buyerId = data.id;
+    buyer.name = data.name ?? source.name;
+    buyer.email = data.email ?? source.email;
+    record(`建立買家 #${data.id}`);
+  } catch (error) {
+    record(`建立買家失敗：${(error as Error).message}`);
+  }
 }
 
 async function createSeller() {
-  const data = await request<{ id: number }>("/sellers", {
-    method: "POST",
-    body: JSON.stringify(seller),
-  });
-  ids.sellerId = data.id;
-  record(`建立賣家 #${data.id}`);
+  const source = currentMember.value ? { ...seller, name: currentMember.value.name, email: currentMember.value.email } : seller;
+  try {
+    const data = await request<{ id: number; threadsUsername: string }>("/sellers", {
+      method: "POST",
+      body: JSON.stringify(source),
+    });
+    ids.sellerId = data.id;
+    seller.name = source.name;
+    seller.email = source.email;
+    record(`建立賣家 #${data.id}`);
+  } catch (error) {
+    record(`建立賣家失敗：${(error as Error).message}`);
+  }
 }
 
 async function createProduct() {
