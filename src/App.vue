@@ -18,7 +18,7 @@ type PersonalProduct = {
   imageDataUrl: string;
 };
 
-const apiBase = "http://localhost:8080/api";
+const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api";
 const memberStorageKey = "previbe-members";
 const productStorageKey = "previbe-personal-products";
 const platformBank = {
@@ -156,7 +156,7 @@ function validatePassword(password: string) {
   return password.length >= 6 && password.length <= 12;
 }
 
-function handleRegister() {
+async function handleRegister() {
   clearAuthFeedback();
   const name = register.name.trim();
   const email = normalizeEmail(register.email);
@@ -187,16 +187,25 @@ function handleRegister() {
     return;
   }
 
-  const member = { name, email, password };
-  saveMembers([...members, member]);
-  login.email = email;
-  login.password = password;
-  register.name = "";
-  register.email = "";
-  register.password = "";
-  register.confirmPassword = "";
-  authMode.value = "login";
-  setSignedInMember(member, `歡迎加入 PREVIBE，${member.name}！`);
+  try {
+    const createdUser = await request<{ id: number; name: string; email: string; role: string }>("/users", {
+      method: "POST",
+      body: JSON.stringify({ name, email, role: "BUYER" }),
+    });
+
+    const member = { name: createdUser.name ?? name, email: createdUser.email ?? email, password };
+    saveMembers([...members, member]);
+    login.email = email;
+    login.password = password;
+    register.name = "";
+    register.email = "";
+    register.password = "";
+    register.confirmPassword = "";
+    authMode.value = "login";
+    setSignedInMember(member, `歡迎加入 PREVIBE，${member.name}！`);
+  } catch (error) {
+    authError.value = `註冊失敗：${(error as Error).message}`;
+  }
 }
 
 function handleLogin() {
