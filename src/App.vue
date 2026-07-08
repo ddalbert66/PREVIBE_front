@@ -1,714 +1,171 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 
-type AuthMode = "login" | "register";
-type Member = {
-  name: string;
-  email: string;
-  password: string;
-  provider?: string;
-};
-type PersonalProduct = {
-  id: string;
-  ownerEmail: string;
-  name: string;
-  description: string;
-  price: number;
-  launchDate: string;
-  imageDataUrl: string;
-};
+type View = "market" | "seller" | "creators" | "supplierCenter" | "suppliers" | "orders" | "admin" | "login";
+type Category = "clothing" | "doll" | "standee" | "drawing" | "accessory" | "paper" | "other";
+type SortMode = "views" | "priceLow" | "priceHigh" | "latest";
+type Role = "BUYER" | "SELLER";
+type SupplierCategory = "clothing" | "doll" | "figure" | "standee";
 
-const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080/api";
-const memberStorageKey = "previbe-members";
-const productStorageKey = "previbe-personal-products";
-const platformBank = {
-  bankName: "PREVIBE 合作銀行",
-  bankCode: "000",
-  account: "000-0000-0000-0000",
-  accountName: "PREVIBE 平台代收專戶",
-};
+type Member = { id: number; name: string; email: string; password?: string; role: Role; sellerId?: number };
+type ProductApi = { id: number; sellerId: number; sellerName: string; sellerEmail: string; name: string; description: string; price: number; preorderEndAt: string | null; imageUrl: string | null };
+type ProductMeta = { category: Category; views: number };
+type Product = ProductApi & { category: Category; views: number; imageDataUrl: string };
+type Order = { localId: string; backendOrderId: number; productName: string; buyerEmail: string; sellerEmail: string; totalAmount: number; status: "ORDERED" | "PAID_ESCROW" | "RECEIVED" };
+type SellerApplication = { id: string; memberId: number; name: string; email: string; threadsUsername: string; identityName: string; identityNumber: string; walletProvider: "BANK" | "USDT"; bankCode?: string; bankAccount?: string; usdtWallet?: string; status: "PENDING" | "APPROVED" | "REJECTED"; submittedAt: string };
+type Supplier = { id: number; name: string; category: SupplierCategory; rating: number; quality: string; samplePrice: number; unitPrice: number; hundredPrice: number; leadTime: string; note: string | null; contactName: string | null; contactEmail: string | null; contactLine: string | null; createdAt: string | null };
+type Creator = { id: number; displayName: string; igUsername: string | null; threadsUsername: string | null; bio: string | null; workTitle: string; workDescription: string; workImageUrl: string | null; recommendationWeight: number; createdAt: string | null };
 
-const health = ref("Checking...");
-const log = ref<string[]>([]);
-const activeView = ref<"preorder" | "products" | "login">("preorder");
-const authMode = ref<AuthMode>("login");
+const apiBase = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8099/api";
+const activeView = ref<View>("market");
+const health = ref("Checking");
+const currentMember = ref<Member | null>(null);
+const members = ref<Member[]>([]);
+const products = ref<Product[]>([]);
+const suppliers = ref<Supplier[]>([]);
+const creators = ref<Creator[]>([]);
+const orders = ref<Order[]>([]);
+const applications = ref<SellerApplication[]>([]);
+const productMeta = ref<Record<string, ProductMeta>>({});
+const selectedOrderId = ref<string | null>(null);
+
+const categoryOptions: Category[] = ["clothing", "doll", "standee", "drawing", "accessory", "paper", "other"];
+const filters = reactive({ category: "all", sort: "views" as SortMode });
+const supplierFilters = reactive({ category: "all", sort: "rating" });
+const login = reactive({ email: "", password: "" });
+const register = reactive({ name: "", email: "", password: "", confirmPassword: "" });
+const sellerForm = reactive({ threadsUsername: "", identityName: "", identityNumber: "", walletProvider: "BANK" as "BANK" | "USDT", bankCode: "", bankAccount: "", usdtWallet: "" });
+const productForm = reactive({ category: "clothing" as Category, name: "", description: "", price: "", preorderEndAt: "", imageDataUrl: "" });
+const supplierForm = reactive({ name: "", category: "clothing" as SupplierCategory, rating: "4.5", quality: "", samplePrice: "", unitPrice: "", hundredPrice: "", leadTime: "", note: "", contactName: "", contactEmail: "", contactLine: "" });
+const creatorForm = reactive({ displayName: "", igUsername: "", threadsUsername: "", bio: "", workTitle: "", workDescription: "", workImageUrl: "", recommendationWeight: "5" });
 const authMessage = ref("");
 const authError = ref("");
-const currentMember = ref<Member | null>(null);
+const sellerMessage = ref("");
+const sellerError = ref("");
+const productMessage = ref("");
+const productError = ref("");
+const supplierMessage = ref("");
+const supplierError = ref("");
+const creatorMessage = ref("");
+const creatorError = ref("");
 
-const seller = reactive({ name: "PREVIBE Studio", email: "seller@example.com", threadsUsername: "previbe_shop" });
-const buyer = reactive({ name: "PREVIBE Buyer", email: "buyer@example.com" });
-const product = reactive({
-  name: "早鳥限定香氛禮盒",
-  description: "從 Threads 貼文開放預購，支援訂單建立、付款模擬與到貨確認。",
-  price: 1280,
+
+const filteredProducts = computed(() => {
+  const list = products.value.filter((item) => filters.category === "all" || item.category === filters.category);
+  return [...list].sort((a, b) => {
+    if (filters.sort === "priceLow") return a.price - b.price;
+    if (filters.sort === "priceHigh") return b.price - a.price;
+    if (filters.sort === "latest") return b.id - a.id;
+    return b.views - a.views;
+  });
 });
-const login = reactive({ email: "", password: "", remember: true });
-const register = reactive({ name: "", email: "", password: "", confirmPassword: "" });
-const personalProducts = ref<PersonalProduct[]>([]);
-const productForm = reactive({
-  name: "",
-  description: "",
-  price: "",
-  launchDate: "",
-  imageDataUrl: "",
+const filteredSuppliers = computed(() => {
+  const list = suppliers.value.filter((item) => supplierFilters.category === "all" || item.category === supplierFilters.category);
+  return [...list].sort((a, b) => supplierFilters.sort === "price" ? a.hundredPrice - b.hundredPrice : b.rating - a.rating);
 });
-const productFormError = ref("");
-const productFormMessage = ref("");
-const ids = reactive<{ buyerId?: number; sellerId?: number; productId?: number; postId?: number; orderId?: number }>({});
-const metrics = reactive({ viewsCount: 1200, likesCount: 168, repliesCount: 12, repostsCount: 8, quotesCount: 3 });
-
-const canCreateProduct = computed(() => ids.sellerId);
-const canBindPost = computed(() => ids.sellerId && ids.productId);
-const canOrder = computed(() => ids.buyerId && ids.productId && ids.postId);
-const canPay = computed(() => ids.orderId);
-const authTitle = computed(() => (authMode.value === "login" ? "登入" : "加入會員"));
-const authSubtitle = computed(() =>
-  authMode.value === "login" ? "登入會員以加快結帳速度與管理訂單" : "建立 PREVIBE 會員，保存預購與付款紀錄",
-);
-const authSubmitLabel = computed(() => (authMode.value === "login" ? "登入會員" : "立即加入"));
-const myProducts = computed(() =>
-  currentMember.value
-    ? personalProducts.value.filter((item) => normalizeEmail(item.ownerEmail) === normalizeEmail(currentMember.value!.email))
-    : [],
-);
-
-const galleryItems = [
-  { title: "Mellow 香氛組", tag: "Lifestyle", tone: "mint" },
-  { title: "City Walk 球鞋", tag: "Fashion", tone: "blue" },
-  { title: "Roast Lab 咖啡豆", tag: "Food", tone: "amber" },
-  { title: "Desk Set 桌面套件", tag: "Design", tone: "charcoal" },
-  { title: "Crew Week 外套", tag: "Apparel", tone: "silver" },
-  { title: "Light Bag 隨身包", tag: "Accessory", tone: "rose" },
-];
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`${response.status} ${body}`);
-  }
-  return response.json() as Promise<T>;
-}
-
-function record(message: string) {
-  log.value = [`${new Date().toLocaleTimeString()} ${message}`, ...log.value].slice(0, 8);
-}
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
-}
-
-function readMembers(): Member[] {
-  try {
-    return JSON.parse(localStorage.getItem(memberStorageKey) || "[]") as Member[];
-  } catch {
-    return [];
-  }
-}
-
-function saveMembers(members: Member[]) {
-  localStorage.setItem(memberStorageKey, JSON.stringify(members));
-}
-
-function readPersonalProducts(): PersonalProduct[] {
-  try {
-    return JSON.parse(localStorage.getItem(productStorageKey) || "[]") as PersonalProduct[];
-  } catch {
-    return [];
-  }
-}
-
-function savePersonalProducts(products: PersonalProduct[]) {
-  personalProducts.value = products;
-  localStorage.setItem(productStorageKey, JSON.stringify(products));
-}
-
-function clearAuthFeedback() {
-  authError.value = "";
-  authMessage.value = "";
-}
-
-function switchAuthMode(mode: AuthMode) {
-  authMode.value = mode;
-  clearAuthFeedback();
-  if (mode === "register") {
-    register.email = login.email;
-  } else {
-    login.email = register.email || login.email;
-  }
-}
-
-function setSignedInMember(member: Member, message: string) {
-  currentMember.value = member;
-  activeView.value = "preorder";
-  authError.value = "";
-  authMessage.value = message;
-  buyer.name = member.name;
-  buyer.email = member.email;
-  record(message);
-}
-
-function validatePassword(password: string) {
-  return password.length >= 6 && password.length <= 12;
-}
-
-async function handleRegister() {
-  clearAuthFeedback();
-  const name = register.name.trim();
-  const email = normalizeEmail(register.email);
-  const password = register.password.trim();
-
-  if (!name) {
-    authError.value = "請輸入會員姓名。";
-    return;
-  }
-  if (!email) {
-    authError.value = "請輸入電子信箱。";
-    return;
-  }
-  if (!validatePassword(password)) {
-    authError.value = "密碼需為 6 至 12 位數。";
-    return;
-  }
-  if (password !== register.confirmPassword.trim()) {
-    authError.value = "兩次輸入的密碼不一致。";
-    return;
-  }
-
-  const members = readMembers();
-  if (members.some((member) => normalizeEmail(member.email) === email)) {
-    authError.value = "此電子信箱已加入會員，請直接登入。";
-    authMode.value = "login";
-    login.email = email;
-    return;
-  }
-
-  try {
-    const createdUser = await request<{ id: number; name: string; email: string; role: string }>("/users", {
-      method: "POST",
-      body: JSON.stringify({ name, email, role: "BUYER" }),
-    });
-
-    const member = { name: createdUser.name ?? name, email: createdUser.email ?? email, password };
-    saveMembers([...members, member]);
-    login.email = email;
-    login.password = password;
-    register.name = "";
-    register.email = "";
-    register.password = "";
-    register.confirmPassword = "";
-    authMode.value = "login";
-    setSignedInMember(member, `歡迎加入 PREVIBE，${member.name}！`);
-  } catch (error) {
-    authError.value = `註冊失敗：${(error as Error).message}`;
-  }
-}
-
-function handleLogin() {
-  clearAuthFeedback();
-  const email = normalizeEmail(login.email);
-  const password = login.password.trim();
-
-  if (!email || !password) {
-    authError.value = "請輸入帳號與密碼。";
-    return;
-  }
-
-  const member = readMembers().find((item) => normalizeEmail(item.email) === email);
-  if (!member) {
-    authError.value = "查無此會員，請先點選立即加入。";
-    return;
-  }
-  if (member.password !== password) {
-    authError.value = "密碼不正確，請重新輸入。";
-    return;
-  }
-
-  setSignedInMember(member, `登入成功，歡迎回來 ${member.name}。`);
-}
-
-function signOut() {
-  const name = currentMember.value?.name ?? "會員";
-  currentMember.value = null;
-  activeView.value = "preorder";
-  login.password = "";
-  authMessage.value = `${name} 已登出。`;
-  authError.value = "";
-  record(`${name} 已登出`);
-}
-
-function handleProductImage(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  if (!file.type.startsWith("image/")) {
-    productFormError.value = "請選擇圖片檔案。";
-    return;
-  }
-  if (file.size > 2 * 1024 * 1024) {
-    productFormError.value = "圖片大小請勿超過 2 MB。";
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = () => {
-    productForm.imageDataUrl = String(reader.result);
-    productFormError.value = "";
-  };
-  reader.readAsDataURL(file);
-}
-
-function createPersonalProduct() {
-  productFormError.value = "";
-  productFormMessage.value = "";
-  if (!currentMember.value) {
-    activeView.value = "login";
-    return;
-  }
-
-  const price = Number(productForm.price);
-  if (!productForm.name.trim() || !productForm.description.trim() || !productForm.launchDate) {
-    productFormError.value = "請完整填寫產品名稱、介紹與預計上線日期。";
-    return;
-  }
-  if (!Number.isFinite(price) || price <= 0) {
-    productFormError.value = "請輸入正確的預購價格。";
-    return;
-  }
-  if (!productForm.imageDataUrl) {
-    productFormError.value = "請上傳產品照片。";
-    return;
-  }
-  const newProduct: PersonalProduct = {
-    id: crypto.randomUUID(),
-    ownerEmail: currentMember.value.email,
-    name: productForm.name.trim(),
-    description: productForm.description.trim(),
-    price,
-    launchDate: productForm.launchDate,
-    imageDataUrl: productForm.imageDataUrl,
-  };
-  savePersonalProducts([newProduct, ...personalProducts.value]);
-  Object.assign(productForm, {
-    name: "",
-    description: "",
-    price: "",
-    launchDate: "",
-    imageDataUrl: "",
-  });
-  productFormMessage.value = "產品已新增，顯示於你的預購產品列表。";
-  record(`新增預購產品：${newProduct.name}`);
-}
-
-function removePersonalProduct(id: string) {
-  savePersonalProducts(personalProducts.value.filter((item) => item.id !== id));
-  productFormMessage.value = "產品已刪除。";
-}
-
-async function socialLogin(provider: "Facebook" | "Google" | "LINE") {
-  const email = `${provider.toLowerCase()}@previbe.demo`;
-  const fallbackMember = { name: `${provider} 會員`, email, password: "social-login", provider };
-
-  try {
-    const createdUser = await request<{ id: number; name: string; email: string; role: string }>("/users", {
-      method: "POST",
-      body: JSON.stringify({ name: fallbackMember.name, email, role: "BUYER" }),
-    });
-    const member = { ...fallbackMember, name: createdUser.name ?? fallbackMember.name, email: createdUser.email ?? email };
-    const members = readMembers();
-    if (!members.some((item) => normalizeEmail(item.email) === email)) {
-      saveMembers([...members, member]);
-    }
-    setSignedInMember(member, `已使用 ${provider} 帳號登入。`);
-  } catch (error) {
-    authError.value = `${provider} 登入失敗：${(error as Error).message}`;
-  }
-}
-
-async function checkHealth() {
-  try {
-    const data = await request<{ status: string; service: string }>("/health");
-    health.value = `${data.service} ${data.status}`;
-    record("後端連線成功");
-  } catch (error) {
-    health.value = "Backend offline";
-    record(`後端連線失敗：${(error as Error).message}`);
-  }
-}
-
-async function createBuyer() {
-  const source = currentMember.value ? { name: currentMember.value.name, email: currentMember.value.email } : buyer;
-  try {
-    const data = await request<{ id: number; name: string; email: string }>("/users", {
-      method: "POST",
-      body: JSON.stringify({ ...source, role: "BUYER" }),
-    });
-    ids.buyerId = data.id;
-    buyer.name = data.name ?? source.name;
-    buyer.email = data.email ?? source.email;
-    record(`建立買家 #${data.id}`);
-  } catch (error) {
-    record(`建立買家失敗：${(error as Error).message}`);
-  }
-}
-
-async function createSeller() {
-  const source = currentMember.value ? { ...seller, name: currentMember.value.name, email: currentMember.value.email } : seller;
-  try {
-    const data = await request<{ id: number; threadsUsername: string }>("/sellers", {
-      method: "POST",
-      body: JSON.stringify(source),
-    });
-    ids.sellerId = data.id;
-    seller.name = source.name;
-    seller.email = source.email;
-    record(`建立賣家 #${data.id}`);
-  } catch (error) {
-    record(`建立賣家失敗：${(error as Error).message}`);
-  }
-}
-
-async function createProduct() {
-  const data = await request<{ id: number }>("/products", {
-    method: "POST",
-    body: JSON.stringify({
-      sellerId: ids.sellerId,
-      name: product.name,
-      description: product.description,
-      price: product.price,
-      preorderStartAt: "2026-05-21",
-      preorderEndAt: "2026-06-20",
-      estimatedShipAt: "2026-07-15",
-    }),
-  });
-  ids.productId = data.id;
-  record(`建立預購商品 #${data.id}`);
-}
-
-async function bindThreadsPost() {
-  const data = await request<{ id: number }>("/threads/posts", {
-    method: "POST",
-    body: JSON.stringify({
-      sellerId: ids.sellerId,
-      productId: ids.productId,
-      threadsPostId: `threads_${Date.now()}`,
-      postUrl: "https://www.threads.net/@previbe_shop/post/demo",
-    }),
-  });
-  ids.postId = data.id;
-  record(`綁定 Threads 貼文 #${data.id}`);
-}
-
-async function updateMetrics() {
-  await request(`/threads/posts/${ids.postId}/metrics/manual`, {
-    method: "POST",
-    body: JSON.stringify(metrics),
-  });
-  record("更新 Threads 互動數據");
-}
-
-async function createOrder() {
-  const data = await request<{ id: number }>("/orders", {
-    method: "POST",
-    body: JSON.stringify({ buyerId: ids.buyerId, productId: ids.productId, threadsPostId: ids.postId, quantity: 1 }),
-  });
-  ids.orderId = data.id;
-  record(`建立訂單 #${data.id}`);
-}
-
-async function payOrder() {
-  await request(`/orders/${ids.orderId}/pay/credit-card/simulate`, { method: "POST" });
-  record("模擬付款成功，款項進入履約保管");
-}
-
-async function releaseEscrow() {
-  await request(`/orders/${ids.orderId}/confirm-received`, { method: "POST" });
-  record("確認收貨，釋放款項給賣家");
-}
-
-onMounted(() => {
-  personalProducts.value = readPersonalProducts();
-  checkHealth();
+const featuredCreators = computed(() => {
+  if (!creators.value.length) return [];
+  const daySeed = Math.floor(Date.now() / 86400000);
+  return [...creators.value].sort((a, b) => ((a.id * 37 + daySeed) % 997) - ((b.id * 37 + daySeed) % 997));
 });
+const selectedOrder = computed(() => orders.value.find((item) => item.localId === selectedOrderId.value));
+const currentSellerProducts = computed(() => currentMember.value ? products.value.filter((item) => sameEmail(item.sellerEmail, currentMember.value!.email)) : []);
+const currentBuyerOrders = computed(() => currentMember.value ? orders.value.filter((item) => sameEmail(item.buyerEmail, currentMember.value!.email)) : []);
+const currentSellerOrders = computed(() => currentMember.value ? orders.value.filter((item) => sameEmail(item.sellerEmail, currentMember.value!.email)) : []);
+const pendingApplications = computed(() => applications.value.filter((item) => item.status === "PENDING"));
+const reviewedApplications = computed(() => applications.value.filter((item) => item.status !== "PENDING"));
+
+function loadJson<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) || "") as T; } catch { return fallback; } }
+function saveJson(key: string, value: unknown) { localStorage.setItem(key, JSON.stringify(value)); }
+function sameEmail(a: string, b: string) { return a.trim().toLowerCase() === b.trim().toLowerCase(); }
+function categoryText(category: Category | "all") { return ({ all: "全部", clothing: "衣物", doll: "娃娃", standee: "立牌", drawing: "手繪", accessory: "配件", paper: "紙品", other: "其他" })[category]; }
+function sortText(sort: SortMode) { return ({ views: "瀏覽率最高", priceLow: "價格低到高", priceHigh: "價格高到低", latest: "最新上架" })[sort]; }
+function supplierCategoryText(category: SupplierCategory | "all") { return ({ all: "全部", clothing: "製作衣服", doll: "娃娃", figure: "公仔", standee: "立牌" })[category]; }
+function stableViews(id: number) { return 320 + ((id * 739) % 9800); }
+function inferCategory(item: ProductApi): Category { const text = `${item.name} ${item.description}`.toLowerCase(); if (text.includes("shirt") || text.includes("衣") || text.includes("服")) return "clothing"; if (text.includes("娃娃")) return "doll"; if (text.includes("立牌")) return "standee"; if (text.includes("手繪") || text.includes("draw")) return "drawing"; if (text.includes("配件")) return "accessory"; if (text.includes("紙") || text.includes("貼紙")) return "paper"; return "other"; }
+function paymentSummary(item: SellerApplication) { return item.walletProvider === "USDT" ? `USDT ${item.usdtWallet || "未填"}` : `銀行 ${item.bankCode || "未填"} / ${item.bankAccount || "未填"}`; }
+function statusText(status: Order["status"]) { if (status === "ORDERED") return "已建立，等待付款"; if (status === "PAID_ESCROW") return "已付款，平台保管中"; return "已收貨，可撥款"; }
+function appStatus(status: SellerApplication["status"]) { if (status === "PENDING") return "待審核"; if (status === "APPROVED") return "已通過"; return "已退回"; }
+
+async function api<T>(path: string, init?: RequestInit) { const res = await fetch(`${apiBase}${path}`, { headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) }, ...init }); if (!res.ok) throw new Error(`${res.status} ${await res.text()}`); return res.json() as Promise<T>; }
+async function checkHealth() { try { const data = await api<{ service: string; status: string }>("/health"); health.value = `${data.service} ${data.status}`; } catch { health.value = "Backend offline"; } }
+async function loadProducts() { const data = await api<ProductApi[]>("/products"); products.value = data.map((item) => { const meta = productMeta.value[String(item.id)]; return { ...item, preorderEndAt: item.preorderEndAt ?? "-", imageDataUrl: item.imageUrl ?? "", category: meta?.category ?? inferCategory(item), views: meta?.views ?? stableViews(item.id) }; }); }
+async function loadSuppliers() { suppliers.value = await api<Supplier[]>("/suppliers"); }
+async function loadCreators() { creators.value = await api<Creator[]>("/creators"); }
+function setMember(member: Member, message: string) { currentMember.value = member; login.email = member.email; saveJson("previbe-current-member-v1", member); activeView.value = member.role === "SELLER" ? "seller" : "market"; authMessage.value = message; authError.value = ""; }
+async function handleRegister() { authError.value = ""; if (!register.name || !register.email || register.password.length < 6 || register.password !== register.confirmPassword) { authError.value = "請確認姓名、帳號與密碼，密碼至少 6 碼且兩次一致。"; return; } if (members.value.some((m) => sameEmail(m.email, register.email))) { authError.value = "這個帳號已經註冊，請直接登入。"; return; } const user = await api<{ id: number; name: string; email: string; role: Role }>("/users", { method: "POST", body: JSON.stringify({ name: register.name, email: register.email, role: "BUYER" }) }); const member: Member = { id: user.id, name: user.name, email: user.email, password: register.password, role: "BUYER" }; members.value = [member, ...members.value]; saveJson("previbe-members-v2", members.value); Object.assign(register, { name: "", email: "", password: "", confirmPassword: "" }); setMember(member, `已建立會員：${member.name}`); }
+function handleLogin() { const member = members.value.find((m) => sameEmail(m.email, login.email)); if (!member || member.password !== login.password) { authError.value = "帳號或密碼不正確。"; return; } setMember(member, `歡迎回來：${member.name}`); }
+function signOut() { currentMember.value = null; localStorage.removeItem("previbe-current-member-v1"); login.password = ""; activeView.value = "login"; }
+function submitSellerApplication() { sellerError.value = ""; if (!currentMember.value) { activeView.value = "login"; return; } const isBank = sellerForm.walletProvider === "BANK"; const hasPayment = isBank ? sellerForm.bankCode && sellerForm.bankAccount : sellerForm.usdtWallet; if (!sellerForm.threadsUsername || !sellerForm.identityName || !sellerForm.identityNumber || !hasPayment) { sellerError.value = isBank ? "請填寫 Threads、身分資料、銀行代號與帳號。" : "請填寫 Threads、身分資料與 USDT 錢包地址。"; return; } const app: SellerApplication = { id: crypto.randomUUID(), memberId: currentMember.value.id, name: currentMember.value.name, email: currentMember.value.email, threadsUsername: sellerForm.threadsUsername.replace(/^@/, ""), identityName: sellerForm.identityName, identityNumber: sellerForm.identityNumber, walletProvider: sellerForm.walletProvider, bankCode: isBank ? sellerForm.bankCode : "", bankAccount: isBank ? sellerForm.bankAccount : "", usdtWallet: isBank ? "" : sellerForm.usdtWallet, status: "PENDING", submittedAt: new Date().toLocaleString() }; applications.value = [app, ...applications.value.filter((item) => item.memberId !== app.memberId)]; saveJson("previbe-seller-applications-v1", applications.value); Object.assign(sellerForm, { threadsUsername: "", identityName: "", identityNumber: "", walletProvider: "BANK", bankCode: "", bankAccount: "", usdtWallet: "" }); sellerMessage.value = "已送出審核，請到後台審核通過後再上架商品。"; }
+async function approveApplication(app: SellerApplication) { const seller = await api<{ id: number }>("/sellers", { method: "POST", body: JSON.stringify({ name: app.name, email: app.email, threadsUsername: app.threadsUsername }) }); app.status = "APPROVED"; const member = members.value.find((m) => m.id === app.memberId || sameEmail(m.email, app.email)); if (member) { member.role = "SELLER"; member.sellerId = seller.id; if (currentMember.value && sameEmail(currentMember.value.email, member.email)) setMember(member, "已通過賣家審核，可以上架商品。"); } saveJson("previbe-members-v2", members.value); saveJson("previbe-seller-applications-v1", applications.value); }
+function rejectApplication(app: SellerApplication) { app.status = "REJECTED"; saveJson("previbe-seller-applications-v1", applications.value); }
+function readImageFile(event: Event, assign: (value: string) => void) { const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => assign(String(reader.result)); reader.readAsDataURL(file); }
+function handleProductImage(event: Event) { readImageFile(event, (value) => productForm.imageDataUrl = value); }
+function handleCreatorImage(event: Event) { readImageFile(event, (value) => creatorForm.workImageUrl = value); }
+async function createProduct() { productError.value = ""; if (!currentMember.value?.sellerId) { productError.value = "請先通過賣家審核。"; return; } const price = Number(productForm.price); if (!productForm.name || !productForm.description || !productForm.preorderEndAt || !price) { productError.value = "請填寫商品名稱、介紹、價格與截止日。"; return; } const created = await api<{ id: number }>("/products", { method: "POST", body: JSON.stringify({ sellerId: currentMember.value.sellerId, name: productForm.name, description: productForm.description, price, preorderStartAt: new Date().toISOString().slice(0, 10), preorderEndAt: productForm.preorderEndAt, estimatedShipAt: productForm.preorderEndAt, imageUrl: productForm.imageDataUrl }) }); productMeta.value[String(created.id)] = { category: productForm.category, views: stableViews(created.id) }; saveJson("previbe-product-metadata-v1", productMeta.value); Object.assign(productForm, { category: "clothing", name: "", description: "", price: "", preorderEndAt: "", imageDataUrl: "" }); productMessage.value = "商品已上架。"; await loadProducts(); }
+async function createSupplier() { supplierError.value = ""; const payload = { name: supplierForm.name, category: supplierForm.category, rating: Number(supplierForm.rating), quality: supplierForm.quality, samplePrice: Number(supplierForm.samplePrice), unitPrice: Number(supplierForm.unitPrice), hundredPrice: Number(supplierForm.hundredPrice), leadTime: supplierForm.leadTime, note: supplierForm.note, contactName: supplierForm.contactName, contactEmail: supplierForm.contactEmail, contactLine: supplierForm.contactLine }; if (!payload.name || !payload.category || !payload.quality || !payload.leadTime || Number.isNaN(payload.rating)) { supplierError.value = "請填寫廠商名稱、品項、評分、品質與交期。"; return; } const created = await api<Supplier>("/suppliers", { method: "POST", body: JSON.stringify(payload) }); suppliers.value = [created, ...suppliers.value]; Object.assign(supplierForm, { name: "", category: "clothing", rating: "4.5", quality: "", samplePrice: "", unitPrice: "", hundredPrice: "", leadTime: "", note: "", contactName: "", contactEmail: "", contactLine: "" }); supplierMessage.value = "廠商資料已建立，尋找廠商頁已可查看。"; }
+async function createCreator() { creatorError.value = ""; const payload = { displayName: creatorForm.displayName, igUsername: creatorForm.igUsername, threadsUsername: creatorForm.threadsUsername, bio: creatorForm.bio, workTitle: creatorForm.workTitle, workDescription: creatorForm.workDescription, workImageUrl: creatorForm.workImageUrl, recommendationWeight: Number(creatorForm.recommendationWeight) }; if (!payload.displayName || !payload.workTitle || !payload.workDescription || (!payload.igUsername && !payload.threadsUsername)) { creatorError.value = "請填寫創作者名稱、至少一個 IG/Threads、作品名稱與作品介紹。"; return; } const created = await api<Creator>("/creators", { method: "POST", body: JSON.stringify(payload) }); creators.value = [created, ...creators.value]; Object.assign(creatorForm, { displayName: "", igUsername: "", threadsUsername: "", bio: "", workTitle: "", workDescription: "", workImageUrl: "", recommendationWeight: "5" }); creatorMessage.value = "創作者作品已建立，會在創作者頁輪流推薦。"; }
+async function buyProduct(item: Product) { if (!currentMember.value) { activeView.value = "login"; return; } if (sameEmail(currentMember.value.email, item.sellerEmail)) { alert("不能購買自己上架的商品，請切換買家帳號測試。"); return; } const order = await api<{ id: number }>("/orders", { method: "POST", body: JSON.stringify({ buyerId: currentMember.value.id, productId: item.id, quantity: 1 }) }); const record: Order = { localId: crypto.randomUUID(), backendOrderId: order.id, productName: item.name, buyerEmail: currentMember.value.email, sellerEmail: item.sellerEmail, totalAmount: item.price, status: "ORDERED" }; orders.value = [record, ...orders.value]; saveJson("previbe-orders-v2", orders.value); selectedOrderId.value = record.localId; activeView.value = "orders"; }
+async function payOrder(order: Order) { await api(`/orders/${order.backendOrderId}/pay/credit-card/simulate`, { method: "POST" }); order.status = "PAID_ESCROW"; saveJson("previbe-orders-v2", orders.value); }
+async function confirmReceived(order: Order) { await api(`/orders/${order.backendOrderId}/confirm-received`, { method: "POST" }); order.status = "RECEIVED"; saveJson("previbe-orders-v2", orders.value); }
+
+onMounted(async () => { members.value = loadJson("previbe-members-v2", []); applications.value = loadJson("previbe-seller-applications-v1", []); orders.value = loadJson("previbe-orders-v2", []); productMeta.value = loadJson("previbe-product-metadata-v1", {}); currentMember.value = loadJson<Member | null>("previbe-current-member-v1", null); if (currentMember.value) login.email = currentMember.value.email; await checkHealth(); await loadProducts(); await loadSuppliers(); await loadCreators(); });
 </script>
 
 <template>
   <main class="page-shell">
     <header class="site-header">
-      <button class="brand" type="button" @click="activeView = 'preorder'">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span>PREVIBE</span>
-      </button>
-      <nav class="nav-links" aria-label="主要導覽">
-        <button :class="{ active: activeView === 'preorder' }" type="button" @click="activeView = 'preorder'">LINEUP</button>
-        <button v-if="currentMember" :class="{ active: activeView === 'products' }" type="button" @click="activeView = 'products'">
-          MY PRODUCTS
-        </button>
-        <button :class="{ active: activeView === 'login' }" type="button" @click="activeView = 'login'">
-          {{ currentMember ? "MEMBER" : "LOGIN" }}
-        </button>
-        <a href="https://www.threads.net/@previbe_shop" target="_blank" rel="noreferrer">THREADS</a>
+      <button class="brand" type="button" @click="activeView='market'"><span class="brand-mark"></span><span>PREVIBE</span></button>
+      <nav class="nav-links">
+        <button :class="{active:activeView==='market'}" @click="activeView='market'">預購商品</button>
+        <button :class="{active:activeView==='seller'}" @click="activeView='seller'">賣家中心</button>
+        <button :class="{active:activeView==='creators'}" @click="activeView='creators'">創作者</button>
+        <button :class="{active:activeView==='supplierCenter'}" @click="activeView='supplierCenter'">廠商中心</button>
+        <button :class="{active:activeView==='suppliers'}" @click="activeView='suppliers'">尋找廠商</button>
+        <button :class="{active:activeView==='orders'}" @click="activeView='orders'">訂單測試</button>
+        <button :class="{active:activeView==='admin'}" @click="activeView='admin'">後台審核</button>
+        <button :class="{active:activeView==='login'}" @click="activeView='login'">{{ currentMember ? currentMember.name : '登入/註冊' }}</button>
       </nav>
-      <p class="header-note">把 Threads 熱度轉成可信任的預購訂單。</p>
+      <p class="header-note">{{ health }}</p>
     </header>
 
-    <section v-if="activeView === 'preorder'" class="preorder-view">
-      <section v-if="personalProducts.length" class="public-products">
-        <div class="public-products-heading">
-          <div>
-            <p class="eyebrow">NEW PREORDERS</p>
-            <h1>最新預購商品</h1>
-          </div>
-          <span>{{ personalProducts.length }} 項商品</span>
-        </div>
-        <div class="public-product-grid">
-          <article v-for="item in personalProducts" :key="item.id" class="public-product-card">
-            <img :src="item.imageDataUrl" :alt="item.name" />
-            <div class="public-product-copy">
-              <p class="eyebrow">預計上線 {{ item.launchDate }}</p>
-              <h2>{{ item.name }}</h2>
-              <p>{{ item.description }}</p>
-              <strong>NT$ {{ item.price.toLocaleString() }}</strong>
-              <p class="payment-summary">平台代收代管 · 下單後產生專屬付款識別碼</p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="gallery-grid" aria-label="預購商品列表">
-        <article v-for="item in galleryItems" :key="item.title" class="gallery-card">
-          <div class="thumb" :class="item.tone">
-            <span>{{ item.tag }}</span>
-          </div>
-          <h2>{{ item.title }}</h2>
-        </article>
-      </section>
-
-      <section class="product-layout">
-        <article class="product-feature">
-          <div class="product-art">
-            <span class="product-label">PREORDER</span>
-            <strong>{{ product.name }}</strong>
-          </div>
-          <div class="product-copy">
-            <p class="eyebrow">Threads @{{ seller.threadsUsername }}</p>
-            <h1>{{ product.name }}</h1>
-            <p>{{ product.description }}</p>
-            <div class="price-row">
-              <strong>NT$ {{ product.price.toLocaleString() }}</strong>
-              <span>預購至 2026.06.20</span>
-            </div>
-          </div>
-        </article>
-
-        <aside class="workflow-panel" aria-label="預購流程操作">
-          <div class="status-pill">{{ health }}</div>
-          <h2>預購流程</h2>
-          <div class="actions">
-            <button @click="createBuyer">建立買家</button>
-            <button @click="createSeller">建立賣家</button>
-            <button :disabled="!canCreateProduct" @click="createProduct">建立商品</button>
-            <button :disabled="!canBindPost" @click="bindThreadsPost">綁定 Threads</button>
-            <button :disabled="!ids.postId" @click="updateMetrics">更新數據</button>
-            <button :disabled="!canOrder" @click="createOrder">建立訂單</button>
-            <button :disabled="!canPay" @click="payOrder">模擬付款</button>
-            <button :disabled="!canPay" @click="releaseEscrow">確認收貨</button>
-          </div>
-        </aside>
-      </section>
-
-      <section class="dashboard-row">
-        <article class="data-panel">
-          <h2>流程編號</h2>
-          <dl>
-            <dt>Buyer</dt><dd>#{{ ids.buyerId ?? "-" }}</dd>
-            <dt>Seller</dt><dd>#{{ ids.sellerId ?? "-" }}</dd>
-            <dt>Product</dt><dd>#{{ ids.productId ?? "-" }}</dd>
-            <dt>Threads</dt><dd>#{{ ids.postId ?? "-" }}</dd>
-            <dt>Order</dt><dd>#{{ ids.orderId ?? "-" }}</dd>
-          </dl>
-        </article>
-
-        <article class="data-panel metrics">
-          <h2>Threads 熱度</h2>
-          <div><span>瀏覽</span><strong>{{ metrics.viewsCount.toLocaleString() }}</strong></div>
-          <div><span>喜歡</span><strong>{{ metrics.likesCount.toLocaleString() }}</strong></div>
-          <div><span>回覆</span><strong>{{ metrics.repliesCount }}</strong></div>
-          <div><span>轉發</span><strong>{{ metrics.repostsCount }}</strong></div>
-        </article>
-
-        <article class="data-panel activity">
-          <h2>最新紀錄</h2>
-          <ul>
-            <li v-for="item in log" :key="item">{{ item }}</li>
-          </ul>
-        </article>
-      </section>
+    <section v-if="activeView==='market'" class="market-view">
+      <div class="section-heading"><p class="eyebrow">CREATOR PREORDER MARKETPLACE</p><h1>創作者預購市集</h1><p>專為創作者販售衣物、娃娃、立牌、手繪、紙品與周邊商品設計。</p></div>
+      <div class="market-toolbar"><label><span>分類</span><select v-model="filters.category"><option value="all">全部</option><option v-for="category in categoryOptions" :key="category" :value="category">{{ categoryText(category) }}</option></select></label><label><span>排序</span><select v-model="filters.sort"><option value="views">瀏覽率最高</option><option value="priceLow">價格低到高</option><option value="priceHigh">價格高到低</option><option value="latest">最新上架</option></select></label></div>
+      <div v-if="filteredProducts.length" class="product-grid"><article v-for="item in filteredProducts" :key="item.id" class="product-card"><div class="product-image"><img v-if="item.imageDataUrl" :src="item.imageDataUrl" /><span v-else>PREVIBE</span></div><div class="product-body"><p class="eyebrow">賣家 {{ item.sellerName }} ・ 截止 {{ item.preorderEndAt }}</p><h2>{{ item.name }}</h2><p>{{ item.description }}</p><div class="product-card-meta"><span>{{ categoryText(item.category) }}</span><span>{{ item.views.toLocaleString() }} 次瀏覽</span></div><strong>NT$ {{ item.price.toLocaleString() }}</strong><button class="primary-action" @click="buyProduct(item)">立即預購</button></div></article></div>
+      <div v-else class="empty-board"><h2>沒有符合條件的商品</h2><p>請切換分類或排序條件。</p></div>
     </section>
 
-    <section v-else-if="activeView === 'products'" class="products-view">
-      <div class="section-heading">
-        <p class="eyebrow">PREVIBE SELLER STUDIO</p>
-        <h1>我的預購產品</h1>
-        <p>建立自己的預購頁面，整理照片、介紹、價格與上線日期。</p>
-      </div>
-
-      <div class="product-studio">
-        <form class="product-editor" @submit.prevent="createPersonalProduct">
-          <h2>新增預購產品</h2>
-          <label>
-            <span>產品照片</span>
-            <input type="file" accept="image/*" @change="handleProductImage" />
-          </label>
-          <div v-if="productForm.imageDataUrl" class="upload-preview">
-            <img :src="productForm.imageDataUrl" alt="產品照片預覽" />
-          </div>
-          <label>
-            <span>產品名稱</span>
-            <input v-model="productForm.name" type="text" placeholder="例如：夏日限定手作杯" />
-          </label>
-          <label>
-            <span>產品介紹</span>
-            <textarea v-model="productForm.description" rows="4" placeholder="輸入產品特色、材質或預購說明"></textarea>
-          </label>
-          <div class="editor-grid">
-            <label>
-              <span>預購價格</span>
-              <input v-model="productForm.price" type="number" min="1" placeholder="NT$" />
-            </label>
-            <label>
-              <span>預計上線日期</span>
-              <input v-model="productForm.launchDate" type="date" />
-            </label>
-          </div>
-          <div class="platform-payment-note">
-            <strong>平台代收代管</strong>
-            <p>買家款項統一匯入 PREVIBE 平台專戶。產品建立時不需要填寫私人銀行帳號。</p>
-          </div>
-          <p v-if="productFormError" class="auth-feedback error">{{ productFormError }}</p>
-          <p v-if="productFormMessage" class="auth-feedback success">{{ productFormMessage }}</p>
-          <button class="primary-action" type="submit">新增產品</button>
-        </form>
-
-        <section class="my-product-list" aria-label="我的預購產品列表">
-          <div class="list-heading">
-            <h2>產品列表</h2>
-            <span>{{ myProducts.length }} 項產品</span>
-          </div>
-          <p v-if="!myProducts.length" class="empty-state">尚未建立產品，從左側表單新增第一個預購商品。</p>
-          <article v-for="item in myProducts" :key="item.id" class="personal-product-card">
-            <img :src="item.imageDataUrl" :alt="item.name" />
-            <div>
-              <p class="eyebrow">預計上線 {{ item.launchDate }}</p>
-              <h3>{{ item.name }}</h3>
-              <p>{{ item.description }}</p>
-              <strong>NT$ {{ item.price.toLocaleString() }}</strong>
-              <p class="seller-payment-state">交易方式：PREVIBE 平台代收代管</p>
-            </div>
-            <button class="delete-action" type="button" aria-label="刪除產品" title="刪除產品" @click="removePersonalProduct(item.id)">×</button>
-          </article>
-        </section>
-      </div>
-      <section class="escrow-panel">
-        <div>
-          <p class="eyebrow">PLATFORM ESCROW</p>
-          <h2>平台公用銀行專戶</h2>
-          <p>買家建立訂單後，系統才提供平台專戶與該筆訂單的付款識別碼。賣家不直接向買家收款。</p>
-        </div>
-        <dl class="escrow-bank">
-          <dt>銀行</dt><dd>{{ platformBank.bankName }} ({{ platformBank.bankCode }})</dd>
-          <dt>帳號</dt><dd>{{ platformBank.account }}</dd>
-          <dt>戶名</dt><dd>{{ platformBank.accountName }}</dd>
-        </dl>
-        <div class="escrow-rules">
-          <strong>入帳檢核</strong>
-          <ul>
-            <li>每筆訂單產生唯一付款識別碼，限該筆訂單使用。</li>
-            <li>核對訂單金額、付款識別碼與買家資料後才標記已付款。</li>
-            <li>無訂單、金額不符或來源異常的款項進入人工審核，不自動認列。</li>
-            <li>賣家出貨、買家確認收貨後，平台才進行款項釋放。</li>
-          </ul>
-        </div>
-      </section>
+    <section v-else-if="activeView==='seller'" class="products-view">
+      <div class="section-heading"><p class="eyebrow">SELLER STUDIO</p><h1>賣家中心</h1><p>買家也可以申請成為賣家，送出身分與收款驗證後，由後台審核通過即可上架商品。</p></div>
+      <div v-if="!currentMember" class="empty-board"><h2>請先登入會員</h2><button class="primary-action" @click="activeView='login'">前往登入</button></div>
+      <div v-else-if="currentMember.role!=='SELLER'" class="product-studio"><form class="product-editor" @submit.prevent="submitSellerApplication"><h2>申請成為賣家</h2><label><span>Threads 帳號</span><input v-model="sellerForm.threadsUsername" type="text" placeholder="例如：previbe_shop" /></label><label><span>身分姓名 / 公司名稱</span><input v-model="sellerForm.identityName" type="text" /></label><label><span>身分證 / 統編</span><input v-model="sellerForm.identityNumber" type="text" /></label><div class="editor-grid"><label><span>收款方式</span><select v-model="sellerForm.walletProvider"><option value="BANK">銀行帳戶</option><option value="USDT">USDT</option></select></label><template v-if="sellerForm.walletProvider==='BANK'"><label><span>銀行代號</span><input v-model="sellerForm.bankCode" type="text" /></label><label><span>銀行帳號</span><input v-model="sellerForm.bankAccount" type="text" /></label></template><label v-else><span>USDT 錢包地址</span><input v-model="sellerForm.usdtWallet" type="text" /></label></div><p v-if="sellerError" class="auth-feedback error">{{ sellerError }}</p><p v-if="sellerMessage" class="auth-feedback success">{{ sellerMessage }}</p><button class="primary-action">送出審核</button></form></div>
+      <div v-else class="product-studio"><form class="product-editor" @submit.prevent="createProduct"><h2>新增預購商品</h2><label><span>商品分類</span><select v-model="productForm.category"><option v-for="category in categoryOptions" :key="category" :value="category">{{ categoryText(category) }}</option></select></label><label><span>商品圖片</span><input type="file" accept="image/*" @change="handleProductImage" /></label><div v-if="productForm.imageDataUrl" class="upload-preview"><img :src="productForm.imageDataUrl" /></div><label><span>商品名稱</span><input v-model="productForm.name" type="text" /></label><label><span>商品介紹</span><textarea v-model="productForm.description" rows="4"></textarea></label><div class="editor-grid"><label><span>預購價格</span><input v-model="productForm.price" type="number" min="1" /></label><label><span>預購截止日</span><input v-model="productForm.preorderEndAt" type="date" /></label></div><p v-if="productError" class="auth-feedback error">{{ productError }}</p><p v-if="productMessage" class="auth-feedback success">{{ productMessage }}</p><button class="primary-action">上架商品</button></form><section class="my-product-list"><div class="list-heading"><h2>我的商品</h2><span>{{ currentSellerProducts.length }} 件</span></div><article v-for="item in currentSellerProducts" :key="item.id" class="personal-product-card"><img v-if="item.imageDataUrl" :src="item.imageDataUrl" /><div><p class="eyebrow">{{ categoryText(item.category) }}</p><h3>{{ item.name }}</h3><p>{{ item.description }}</p><strong>NT$ {{ item.price.toLocaleString() }}</strong></div></article></section></div>
     </section>
 
-    <section v-else class="login-view">
-      <div class="breadcrumb">{{ currentMember ? "會員資料" : "登入/註冊" }}</div>
-      <div v-if="currentMember" class="profile-panel">
-        <p class="eyebrow">PREVIBE MEMBER</p>
-        <h1>會員資料</h1>
-        <dl class="profile-details">
-          <dt>會員姓名</dt><dd>{{ currentMember.name }}</dd>
-          <dt>電子信箱</dt><dd>{{ currentMember.email }}</dd>
-          <dt>登入方式</dt><dd>{{ currentMember.provider || "PREVIBE 帳號" }}</dd>
-        </dl>
-        <div class="profile-actions">
-          <button type="button" class="primary-action" @click="activeView = 'preorder'">回到首頁</button>
-          <button type="button" class="secondary-action" @click="signOut">登出</button>
-        </div>
-      </div>
-      <div v-else class="login-card">
-        <form class="login-form" @submit.prevent="authMode === 'login' ? handleLogin() : handleRegister()">
-          <p class="eyebrow">{{ authSubtitle }}</p>
-          <h1>{{ authTitle }}</h1>
-
-          <label v-if="authMode === 'register'">
-            <span>姓名</span>
-            <input v-model="register.name" type="text" autocomplete="name" placeholder="請輸入會員姓名" />
-          </label>
-          <label v-if="authMode === 'login'">
-            <span>帳號</span>
-            <input v-model="login.email" type="email" autocomplete="email" placeholder="請輸入您的電子信箱" />
-          </label>
-          <label v-else>
-            <span>帳號</span>
-            <input v-model="register.email" type="email" autocomplete="email" placeholder="請輸入您的電子信箱" />
-          </label>
-          <label v-if="authMode === 'login'">
-            <span>密碼</span>
-            <input v-model="login.password" type="password" autocomplete="current-password" placeholder="請輸入 6 至 12 位數密碼" />
-          </label>
-          <label v-else>
-            <span>密碼</span>
-            <input v-model="register.password" type="password" autocomplete="new-password" placeholder="請輸入 6 至 12 位數密碼" />
-          </label>
-          <label v-if="authMode === 'register'">
-            <span>確認</span>
-            <input v-model="register.confirmPassword" type="password" autocomplete="new-password" placeholder="請再次輸入密碼" />
-          </label>
-
-          <p v-if="authError" class="auth-feedback error">{{ authError }}</p>
-          <p v-if="authMessage" class="auth-feedback success">{{ authMessage }}</p>
-
-          <button class="primary-action" type="submit">{{ authSubmitLabel }}</button>
-          <div v-if="authMode === 'login'" class="form-options">
-            <label class="remember"><input v-model="login.remember" type="checkbox" /> 記住我</label>
-            <button type="button" class="text-link">忘記密碼？</button>
-          </div>
-          <p class="signup-line">
-            <template v-if="authMode === 'login'">
-              尚未加入 PREVIBE 會員嗎？
-              <button type="button" class="text-link strong" @click="switchAuthMode('register')">立即加入</button>
-            </template>
-            <template v-else>
-              已經是 PREVIBE 會員嗎？
-              <button type="button" class="text-link strong" @click="switchAuthMode('login')">回到登入</button>
-            </template>
-          </p>
-        </form>
-
-        <div class="divider"><span>or</span></div>
-
-        <div class="social-login">
-          <p>使用以下方式快速登入</p>
-          <button class="facebook" type="button" @click="socialLogin('Facebook')">使用 Facebook 帳號登入</button>
-          <button class="google" type="button" @click="socialLogin('Google')">使用 Google 帳號登入</button>
-          <button class="line" type="button" @click="socialLogin('LINE')">使用 LINE 帳號登入</button>
-        </div>
-      </div>
+    <section v-else-if="activeView==='creators'" class="creators-view">
+      <div class="section-heading"><p class="eyebrow">CREATOR ROTATION</p><h1>創作者推薦</h1><p>創作者可以建立帳號資料，放上 IG、Threads 與自己的作品，平台會輪流推薦作品給買家與廠商看見。</p></div>
+      <div class="product-studio"><form class="product-editor" @submit.prevent="createCreator"><h2>建立創作者資料</h2><label><span>創作者名稱</span><input v-model="creatorForm.displayName" type="text" /></label><div class="editor-grid"><label><span>Instagram</span><input v-model="creatorForm.igUsername" type="text" placeholder="例如：previbe_art" /></label><label><span>Threads</span><input v-model="creatorForm.threadsUsername" type="text" placeholder="例如：previbe_art" /></label></div><label><span>創作者介紹</span><textarea v-model="creatorForm.bio" rows="3" placeholder="介紹你的創作風格、角色、接案或預購方向"></textarea></label><label><span>作品圖片</span><input type="file" accept="image/*" @change="handleCreatorImage" /></label><div v-if="creatorForm.workImageUrl" class="upload-preview"><img :src="creatorForm.workImageUrl" /></div><label><span>作品名稱</span><input v-model="creatorForm.workTitle" type="text" /></label><label><span>作品介紹</span><textarea v-model="creatorForm.workDescription" rows="4"></textarea></label><label><span>推薦權重</span><input v-model="creatorForm.recommendationWeight" type="number" min="1" max="10" /></label><p v-if="creatorError" class="auth-feedback error">{{ creatorError }}</p><p v-if="creatorMessage" class="auth-feedback success">{{ creatorMessage }}</p><button class="primary-action">送出創作者作品</button></form><section class="my-product-list"><div class="list-heading"><h2>輪流推薦中的創作者</h2><span>{{ creators.length }} 位</span></div><article v-for="item in featuredCreators.slice(0, 4)" :key="item.id" class="personal-product-card"><img v-if="item.workImageUrl" :src="item.workImageUrl" /><div><p class="eyebrow"><span v-if="item.igUsername">IG @{{ item.igUsername }}</span><span v-if="item.threadsUsername"> Threads @{{ item.threadsUsername }}</span></p><h3>{{ item.displayName }} ・ {{ item.workTitle }}</h3><p>{{ item.workDescription }}</p></div></article></section></div>
+      <div v-if="featuredCreators.length" class="creator-grid"><article v-for="item in featuredCreators" :key="item.id" class="creator-card"><div class="creator-art"><img v-if="item.workImageUrl" :src="item.workImageUrl" /><span v-else>PREVIBE</span></div><div class="creator-body"><p class="eyebrow">今日推薦</p><h2>{{ item.displayName }}</h2><p>{{ item.bio || '創作者尚未填寫介紹。' }}</p><h3>{{ item.workTitle }}</h3><p>{{ item.workDescription }}</p><div class="creator-links"><span v-if="item.igUsername">IG @{{ item.igUsername }}</span><span v-if="item.threadsUsername">Threads @{{ item.threadsUsername }}</span></div></div></article></div><div v-else class="empty-board"><h2>目前沒有創作者作品</h2><p>請先建立創作者資料，作品會在這裡輪流推薦。</p></div>
     </section>
+    <section v-else-if="activeView==='supplierCenter'" class="products-view">
+      <div class="section-heading"><p class="eyebrow">SUPPLIER STUDIO</p><h1>廠商中心</h1><p>製作廠商可以建立衣服、娃娃、公仔、立牌等報價與品質資料，送出後會存入資料庫並顯示在尋找廠商。</p></div>
+      <div class="product-studio"><form class="product-editor" @submit.prevent="createSupplier"><h2>新增廠商製作資料</h2><label><span>廠商名稱</span><input v-model="supplierForm.name" type="text" /></label><label><span>製作品項</span><select v-model="supplierForm.category"><option value="clothing">製作衣服</option><option value="doll">娃娃</option><option value="figure">公仔</option><option value="standee">立牌</option></select></label><div class="editor-grid"><label><span>評分</span><input v-model="supplierForm.rating" type="number" min="0" max="5" step="0.1" /></label><label><span>試作價格</span><input v-model="supplierForm.samplePrice" type="number" min="0" /></label><label><span>單件價格</span><input v-model="supplierForm.unitPrice" type="number" min="0" /></label><label><span>100 件價格</span><input v-model="supplierForm.hundredPrice" type="number" min="0" /></label></div><label><span>衣服品質 / 製作品質</span><textarea v-model="supplierForm.quality" rows="4" placeholder="例如：厚磅棉、刺繡細緻、壓克力透度高"></textarea></label><label><span>交期</span><input v-model="supplierForm.leadTime" type="text" placeholder="例如：試作 7 天 / 量產 21 天" /></label><label><span>備註</span><textarea v-model="supplierForm.note" rows="3" placeholder="可填尺寸、材質、混款規則、包裝服務"></textarea></label><div class="editor-grid"><label><span>聯絡人</span><input v-model="supplierForm.contactName" type="text" /></label><label><span>Email</span><input v-model="supplierForm.contactEmail" type="email" /></label><label><span>LINE / 聯絡方式</span><input v-model="supplierForm.contactLine" type="text" /></label></div><p v-if="supplierError" class="auth-feedback error">{{ supplierError }}</p><p v-if="supplierMessage" class="auth-feedback success">{{ supplierMessage }}</p><button class="primary-action">儲存廠商資料</button></form><section class="my-product-list"><div class="list-heading"><h2>資料庫廠商</h2><span>{{ suppliers.length }} 筆</span></div><article v-for="item in suppliers.slice(0, 5)" :key="item.id" class="personal-product-card"><div><p class="eyebrow">{{ supplierCategoryText(item.category) }} ・ ★ {{ Number(item.rating).toFixed(1) }}</p><h3>{{ item.name }}</h3><p>{{ item.quality }}</p><strong>100 件 NT$ {{ Number(item.hundredPrice).toLocaleString() }}</strong></div></article></section></div>
+    </section>
+    <section v-else-if="activeView==='suppliers'" class="suppliers-view">
+      <div class="section-heading"><p class="eyebrow">CREATOR SUPPLIER DIRECTORY</p><h1>尋找製作廠商</h1><p>比較衣服、娃娃、公仔、立牌等製作廠商的試作費、單件價、100 件價格、品質與評分。</p></div>
+      <div class="market-toolbar"><label><span>製作品項</span><select v-model="supplierFilters.category"><option value="all">全部</option><option value="clothing">製作衣服</option><option value="doll">娃娃</option><option value="figure">公仔</option><option value="standee">立牌</option></select></label><label><span>排序</span><select v-model="supplierFilters.sort"><option value="rating">評分最高</option><option value="price">100 件價格低到高</option></select></label></div>
+      <div v-if="filteredSuppliers.length" class="supplier-grid"><article v-for="item in filteredSuppliers" :key="item.id" class="supplier-card"><div class="supplier-card-head"><p class="eyebrow">{{ supplierCategoryText(item.category) }}</p><strong>★ {{ item.rating.toFixed(1) }}</strong></div><h2>{{ item.name }}</h2><p>{{ item.quality }}</p><dl class="supplier-pricing"><dt>試作價格</dt><dd>NT$ {{ item.samplePrice.toLocaleString() }}</dd><dt>單件價格</dt><dd>NT$ {{ item.unitPrice.toLocaleString() }}</dd><dt>100 件價格</dt><dd>NT$ {{ item.hundredPrice.toLocaleString() }}</dd><dt>交期</dt><dd>{{ item.leadTime }}</dd></dl><p class="payment-summary">{{ item.note }}</p></article></div><div v-else class="empty-board"><h2>目前沒有廠商資料</h2><p>請先到廠商中心新增資料。</p></div>
+    </section>
+
+    <section v-else-if="activeView==='orders'" class="orders-view"><div class="section-heading"><p class="eyebrow">ESCROW TEST</p><h1>訂單付款與收貨測試</h1><p>用買家帳號建立訂單、付款到第三方擔保，再確認收貨。</p></div><div v-if="!currentMember" class="empty-board"><h2>請先登入</h2></div><div v-else class="order-grid"><article class="data-panel activity"><h2>{{ currentMember.role === 'BUYER' ? '我的購買訂單' : '我的銷售訂單' }}</h2><ul><li v-for="item in currentMember.role === 'BUYER' ? currentBuyerOrders : currentSellerOrders" :key="item.localId"><button class="order-link" @click="selectedOrderId=item.localId">#{{ item.backendOrderId }} {{ item.productName }} ・ {{ statusText(item.status) }}</button></li></ul></article><article class="data-panel order-detail"><h2>訂單明細</h2><template v-if="selectedOrder"><dl><dt>訂單</dt><dd>#{{ selectedOrder.backendOrderId }}</dd><dt>商品</dt><dd>{{ selectedOrder.productName }}</dd><dt>金額</dt><dd>NT$ {{ selectedOrder.totalAmount.toLocaleString() }}</dd><dt>狀態</dt><dd>{{ statusText(selectedOrder.status) }}</dd></dl><div v-if="currentMember.role === 'BUYER'" class="flow-actions"><button class="primary-action" :disabled="selectedOrder.status!=='ORDERED'" @click="payOrder(selectedOrder)">信用卡模擬付款</button><button class="secondary-action" :disabled="selectedOrder.status!=='PAID_ESCROW'" @click="confirmReceived(selectedOrder)">確認收貨</button></div></template><p v-else class="empty-state">請選擇訂單。</p></article></div></section>
+
+    <section v-else-if="activeView==='admin'" class="orders-view"><div class="section-heading"><p class="eyebrow">ADMIN REVIEW</p><h1>後台審核</h1><p>審核賣家身分、銀行帳戶或 USDT 收款資料。</p></div><div class="order-grid"><article class="data-panel activity"><h2>待審核申請</h2><ul><li v-for="item in pendingApplications" :key="item.id"><button class="order-link">{{ item.name }} ・ @{{ item.threadsUsername }}</button></li></ul><p v-if="!pendingApplications.length" class="empty-state">目前沒有待審核申請。</p></article><article class="data-panel order-detail"><h2>申請資料</h2><article v-for="item in pendingApplications" :key="item.id" class="personal-product-card"><div><p class="eyebrow">{{ item.submittedAt }}</p><h3>{{ item.name }}</h3><p>{{ item.email }}</p><p>Threads @{{ item.threadsUsername }}</p><p>身分：{{ item.identityName }} / {{ item.identityNumber }}</p><p>收款：{{ paymentSummary(item) }}</p><div class="flow-actions"><button class="primary-action" @click="approveApplication(item)">審核通過</button><button class="secondary-action" @click="rejectApplication(item)">退回</button></div></div></article></article></div><section class="my-product-list"><div class="list-heading"><h2>審核紀錄</h2><span>{{ reviewedApplications.length }} 件</span></div><article v-for="item in reviewedApplications" :key="item.id" class="personal-product-card"><div><h3>{{ item.name }} ・ {{ appStatus(item.status) }}</h3><p>{{ paymentSummary(item) }}</p></div></article></section></section>
+
+    <section v-else class="auth-layout"><form class="auth-card" @submit.prevent="handleLogin"><p class="eyebrow">LOGIN</p><h1>登入會員</h1><label><span>帳號</span><input v-model="login.email" type="email" /></label><label><span>密碼</span><input v-model="login.password" type="password" /></label><button class="primary-action">登入</button><button v-if="currentMember" class="secondary-action" type="button" @click="signOut">登出</button></form><form class="auth-card" @submit.prevent="handleRegister"><p class="eyebrow">REGISTER</p><h1>加入會員</h1><label><span>姓名</span><input v-model="register.name" type="text" /></label><label><span>帳號</span><input v-model="register.email" type="email" /></label><label><span>密碼</span><input v-model="register.password" type="password" /></label><label><span>確認</span><input v-model="register.confirmPassword" type="password" /></label><p v-if="authError" class="auth-feedback error">{{ authError }}</p><p v-if="authMessage" class="auth-feedback success">{{ authMessage }}</p><button class="primary-action">立即加入</button></form></section>
   </main>
 </template>
+
+
+
+

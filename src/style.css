@@ -1010,3 +1010,267 @@ input::placeholder {
     min-height: 190px;
   }
 }
+
+select {
+  min-height: 44px;
+  border: 1px solid #d7d0c6;
+  background: #ffffff;
+  color: #272727;
+  padding: 0 12px;
+}
+
+.market-view,
+.orders-view {
+  padding-top: 46px;
+}
+
+.empty-board {
+  border: 1px solid #dedbd5;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 28px;
+}
+
+.empty-board h2 {
+  margin-bottom: 8px;
+}
+
+.product-placeholder {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1.35 / 1;
+  place-items: center;
+  background: linear-gradient(135deg, #284b43, #d4a373);
+  color: #ffffff;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.primary-action.small {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 14px;
+}
+
+.order-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.order-link {
+  width: 100%;
+  padding: 10px 0;
+  background: transparent;
+  color: #284b43;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.order-link:hover {
+  color: #d7553d;
+}
+
+.order-detail dl {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.order-detail dt {
+  color: #7a756d;
+  font-weight: 800;
+}
+
+.order-detail dd {
+  margin: 0;
+  color: #272727;
+}
+
+.flow-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.flow-actions button:disabled {
+  background: #ddd8cf;
+  color: #8a857d;
+  cursor: not-allowed;
+}
+
+@media (max-width: 840px) {
+  .order-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.market-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 260px));
+  gap: 12px;
+  align-items: end;
+  margin: 0 0 18px;
+}
+
+.market-toolbar label {
+  display: grid;
+  gap: 6px;
+  color: #5c5852;
+  font-weight: 800;
+  font-size: 0.86rem;
+}
+
+.market-toolbar select {
+  width: 100%;
+}
+
+.product-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.product-card-meta span {
+  color: #716b63;
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .market-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.supplier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.supplier-card {
+  border: 1px solid #dedbd5;
+  background: rgba(255, 255, 255, 0.86);
+  padding: 18px;
+}
+
+.supplier-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.supplier-card-head strong {
+  color: #d7553d;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+
+.supplier-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.12rem;
+}
+
+.supplier-card > p:not(.eyebrow) {
+  color: #716b63;
+  line-height: 1.65;
+}
+
+.supplier-pricing {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 10px 12px;
+  margin: 14px 0;
+  padding-top: 14px;
+  border-top: 1px solid #e5dfd6;
+}
+
+.supplier-pricing dt {
+  color: #7a756d;
+  font-weight: 900;
+}
+
+.supplier-pricing dd {
+  margin: 0;
+  color: #272727;
+  font-weight: 800;
+}
+
+@media (max-width: 840px) {
+  .supplier-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.creator-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.creator-card {
+  border: 1px solid #dedbd5;
+  background: rgba(255, 255, 255, 0.9);
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  min-height: 220px;
+}
+
+.creator-art {
+  background: linear-gradient(135deg, #315b4a, #f0a35f);
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  overflow: hidden;
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.creator-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.creator-body {
+  padding: 18px;
+}
+
+.creator-body h2,
+.creator-body h3 {
+  margin: 0 0 8px;
+}
+
+.creator-body p {
+  color: #67615a;
+  line-height: 1.65;
+}
+
+.creator-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.creator-links span {
+  border: 1px solid #dedbd5;
+  padding: 6px 8px;
+  font-weight: 900;
+  color: #d7553d;
+  background: #fff;
+}
+
+@media (max-width: 960px) {
+  .creator-grid,
+  .creator-card {
+    grid-template-columns: 1fr;
+  }
+}
